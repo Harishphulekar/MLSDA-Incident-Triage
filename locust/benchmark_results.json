@@ -1,0 +1,60 @@
+{
+  "slo_target_ms": 350.0,
+  "failure_concurrency_level": "None (all passed up to 20)",
+  "identified_bottleneck": "Worker execution serialization and queue head-of-line blocking under single-worker configuration",
+  "concurrency_benchmarks": [
+    {
+      "concurrency": 1,
+      "total_requests": 25,
+      "total_duration_s": 0.963,
+      "rps": 25.96,
+      "p50_ms": 52.63,
+      "p95_ms": 53.86,
+      "p99_ms": 54.74,
+      "error_rate_pct": 0.0,
+      "slo_target_ms": 350.0,
+      "slo_met": true
+    },
+    {
+      "concurrency": 5,
+      "total_requests": 25,
+      "total_duration_s": 0.216,
+      "rps": 115.51,
+      "p50_ms": 52.53,
+      "p95_ms": 57.84,
+      "p99_ms": 58.13,
+      "error_rate_pct": 0.0,
+      "slo_target_ms": 350.0,
+      "slo_met": true
+    },
+    {
+      "concurrency": 10,
+      "total_requests": 25,
+      "total_duration_s": 0.139,
+      "rps": 180.27,
+      "p50_ms": 56.33,
+      "p95_ms": 71.89,
+      "p99_ms": 72.51,
+      "error_rate_pct": 0.0,
+      "slo_target_ms": 350.0,
+      "slo_met": true
+    },
+    {
+      "concurrency": 20,
+      "total_requests": 25,
+      "total_duration_s": 0.089,
+      "rps": 281.32,
+      "p50_ms": 64.87,
+      "p95_ms": 71.61,
+      "p99_ms": 71.69,
+      "error_rate_pct": 0.0,
+      "slo_target_ms": 350.0,
+      "slo_met": true
+    }
+  ],
+  "worker_scaling_comparison": {
+    "single_worker_rps": 115.51,
+    "three_worker_projected_rps": 329.2,
+    "scaling_factor": 2.85
+  }
+}
