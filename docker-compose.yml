@@ -1,0 +1,186 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. API Gateway / FastApi Ingestion Service
+  # ----------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: incident-triage-api:latest
+    container_name: incident-triage-api
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - SERVICE_NAME=incident-triage-api
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - VECTOR_DB_TYPE=${VECTOR_DB_TYPE:-chroma}
+      - CHROMA_HOST=vector-db
+      - CHROMA_PORT=8000
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - ENABLE_TRACING=${ENABLE_TRACING:-true}
+      - ACTIVE_PROMPT_VERSION=${ACTIVE_PROMPT_VERSION:-v1.1.0}
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - CACHE_ENABLED=${CACHE_ENABLED:-true}
+      - LLM_PROVIDER=${LLM_PROVIDER:-stub}
+      - STUB_MODEL_LATENCY_MS=${STUB_MODEL_LATENCY_MS:-150}
+    depends_on:
+      redis:
+        condition: service_healthy
+      vector-db:
+        condition: service_started
+      jaeger:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - incident-net
+
+  # ----------------------------------------------------------------------------
+  # 2. Asynchronous Multi-Agent Worker (Scalable)
+  # ----------------------------------------------------------------------------
+  agent-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    image: incident-triage-worker:latest
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - SERVICE_NAME=incident-agent-worker
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - VECTOR_DB_TYPE=${VECTOR_DB_TYPE:-chroma}
+      - CHROMA_HOST=vector-db
+      - CHROMA_PORT=8000
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - ENABLE_TRACING=${ENABLE_TRACING:-true}
+      - ACTIVE_PROMPT_VERSION=${ACTIVE_PROMPT_VERSION:-v1.1.0}
+      - LLM_PROVIDER=${LLM_PROVIDER:-stub}
+      - STUB_MODEL_LATENCY_MS=${STUB_MODEL_LATENCY_MS:-150}
+    depends_on:
+      redis:
+        condition: service_healthy
+      vector-db:
+        condition: service_started
+      jaeger:
+        condition: service_started
+    networks:
+      - incident-net
+
+  # ----------------------------------------------------------------------------
+  # 3. Message Queue & In-Memory State (Redis)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: incident-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - incident-net
+
+  # ----------------------------------------------------------------------------
+  # 4. Vector Database (ChromaDB)
+  # ----------------------------------------------------------------------------
+  vector-db:
+    image: chromadb/chroma:0.4.24
+    container_name: incident-chroma
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - incident-net
+
+  # ----------------------------------------------------------------------------
+  # 5. Metrics Collection (Prometheus)
+  # ----------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: incident-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - incident-net
+
+  # ----------------------------------------------------------------------------
+  # 6. Observability Dashboards (Grafana)
+  # ----------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: incident-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - incident-net
+
+  # ----------------------------------------------------------------------------
+  # 7. Distributed Tracing (Jaeger)
+  # ----------------------------------------------------------------------------
+  jaeger:
+    image: jaegertracing/all-in-one:1.56
+    container_name: incident-jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686" # Web UI
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - incident-net
+
+networks:
+  incident-net:
+    driver: bridge
+
+volumes:
+  redis_data:
+  chroma_data:
+  prometheus_data:
+  grafana_data:

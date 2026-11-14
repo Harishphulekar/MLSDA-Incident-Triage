@@ -1,0 +1,32 @@
+# Core Framework & API
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+
+# Queue & Background Workers
+redis>=5.0.0
+celery>=5.3.0
+
+# Observability, Metrics & Tracing
+prometheus-client>=0.20.0
+opentelemetry-api>=1.24.0
+opentelemetry-sdk>=1.24.0
+opentelemetry-exporter-otlp-proto-grpc>=1.24.0
+opentelemetry-instrumentation-fastapi>=0.45b0
+structlog>=24.1.0
+psutil>=5.9.0
+
+# Security & Utilities
+PyYAML>=6.0.0
+httpx>=0.27.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# Testing & Load Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-mock>=3.12.0
+
+# Vector & RAG (Lightweight / Compatible)
+chromadb>=0.4.22
