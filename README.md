@@ -314,8 +314,141 @@ The tests cover:
 
 Additional technical documentation:
 
+- `docs/BACKEND_API_DESIGN.md` — Backend & API Gateway architecture, schema contracts, validation, quarantine, queue, worker, and agent adapter design.
 - `docs/AGENTOPS_SYSTEM_DESIGN.md` — AgentOps architecture and design.
 - `docs/AGENTOPS_AUDIT_REPORT.md` — Implementation audit, verification status and identified limitations.
+
+## 16. Backend and API Gateway (`src/backend/`)
+
+Implemented by **Member 1 (Backend & API Engineer)**.
+
+### 16.1 Architecture Overview
+
+The FastAPI gateway coordinates alert ingestion, validation, quarantine, asynchronous task dispatching, and run status tracking:
+
+```text
+Alert Ingestion -> Validation & Security Scan -> Run ID Generation -> Redis Queue -> Background Worker -> Agent Service Adapter -> Run Storage -> Status & Results API
+                        | (if invalid/suspicious)
+                        v
+                 Quarantine Store (HTTP 422 Rejection)
+```
+
+### 16.2 API Endpoints
+
+- `POST /api/v1/incidents`: Ingests and validates infrastructure alerts. Queues valid jobs asynchronously and returns `202 Accepted` with a unique `run_id` (or executes synchronously if `sync_mode: true`).
+- `GET /api/v1/incidents/{run_id}`: Retrieves run lifecycle status (`queued`, `processing`, `completed`, `failed`, `escalated`).
+- `GET /api/v1/incidents/{run_id}/result`: Retrieves the structured multi-agent triage result (returns `202 Accepted` while in-flight, `200 OK` when completed).
+- `GET /api/v1/incidents/quarantine`: Lists quarantined malformed or suspicious alerts for SRE security review.
+- `GET /api/v1/incidents/quarantine/{quarantine_id}`: Inspects a specific quarantined record with safely redacted secrets.
+- `GET /api/v1/health` & `/health`: Container liveness probes.
+- `GET /api/v1/ready` & `/health/ready`: Readiness probe verifying Redis connectivity, queue depth, and active prompt versions.
+- `GET /api/v1/metrics` & `/metrics`: Prometheus metrics scrape endpoint.
+- `POST /api/v1/feedback`: Submits human engineer evaluation feedback.
+- `GET /api/v1/feedback/stats`: Returns aggregate feedback statistics.
+- `GET /api/v1/prompts`: Lists prompt template versions.
+
+### 16.3 Request and Response Payload Formats
+
+#### Standard Incident Alert Request:
+```json
+{
+  "alert_id": "ALT-PG-DISK-001",
+  "database": "postgresql",
+  "database_version": "16",
+  "metric": "disk_usage",
+  "observed_value": 88.5,
+  "threshold": 80.0,
+  "severity": "warning",
+  "on_call_note": "Host postgres-primary-01 disk usage at 88% and climbing steadily. Table and index sizes are not growing.",
+  "timestamp": "2026-11-14T12:00:00Z",
+  "metadata": {"cluster": "prod-us-east-1"},
+  "client_id": "sre-monitoring",
+  "sync_mode": false
+}
+```
+
+#### Incident Submission Response:
+```json
+{
+  "run_id": "run_a4f910e527bc",
+  "alert_id": "ALT-PG-DISK-001",
+  "correlation_id": "corr_3e89bc1012ab",
+  "status": "queued",
+  "message": "Incident triage request validated and queued for asynchronous agent processing.",
+  "created_at": "2026-11-14T12:05:00.123456+00:00",
+  "result": null
+}
+```
+
+#### Final Structured Agent Result:
+```json
+{
+  "run_id": "run_a4f910e527bc",
+  "alert_id": "ALT-PG-DISK-001",
+  "status": "completed",
+  "symptom_class": "PostgreSQL Replication Slot WAL Retention",
+  "probable_root_cause": "WAL segments accumulate in pg_wal because an inactive or stalled replication slot retains them, causing primary disk consumption despite constant table/index sizes.",
+  "severity": "SEV1",
+  "evidence": [
+    "A replication slot ensures that the primary will retain WAL logs needed by the standby even when disconnected."
+  ],
+  "documentation_citations": [
+    {
+      "source": "postgresql_wal_replication.md",
+      "section": "Chapter 26.2.5: Replication Slots and WAL Retention",
+      "quoted_passage": "A replication slot ensures that the primary will retain WAL logs needed by the standby even when disconnected."
+    }
+  ],
+  "recommended_actions": [
+    "Check inactive replication slots via pg_replication_slots.",
+    "Drop orphaned or disconnected replication slots: SELECT pg_drop_replication_slot('slot_name');",
+    "Monitor pg_wal disk space utilization on primary node."
+  ],
+  "escalation_required": false,
+  "escalation_reason": null,
+  "confidence": 0.95,
+  "routing_decision": "escalate_dba",
+  "created_at": "2026-11-14T12:05:00.123456+00:00",
+  "completed_at": "2026-11-14T12:05:01.456789+00:00",
+  "cost": {"total_tokens": 320, "total_cost_dollars": 0.000078}
+}
+```
+
+### 16.4 Validation, Quarantine, and Security
+
+- **Strict Validation:** Required fields, allowed database engines (`postgresql`, `postgres`), categorical severities (`critical`, `warning`, `info`, `sev1`–`sev4`), metric ranges (`0.0`–`100.0` for percentages, positive thresholds), and ISO 8601 timestamps.
+- **Security Defense:** Destructive shell/SQL commands (`sudo rm -rf`, `DROP DATABASE`) and prompt injection attacks (`ignore previous instructions`, `grant all privileges`) are intercepted before reaching the queue.
+- **Quarantine Store:** Malformed or suspicious alerts are logged, sanitized of passwords/API keys, assigned a `quarantine_id`, and stored for SRE review. The API returns `422 Unprocessable Entity` with quarantine details.
+- **Human-in-the-Loop:** All recommended actions are strictly advisory recommendations for human engineers. The backend never autonomously executes shell scripts or database DDL.
+
+### 16.5 Asynchronous Processing, Queue, and Worker
+
+- **Queue Architecture:** Redis-backed task queue (`src/backend/queue.py`) with automatic fallback to an in-memory asynchronous queue when Redis is offline.
+- **Worker Process:** Scalable background worker (`src/backend/worker.py`) that dequeues tasks, updates run lifecycle statuses, and invokes multi-agent triage.
+- **Bounded Retries:** Implements 3 bounded retries with exponential backoff (`0.5s`, `1.0s`, `2.0s`) on transient errors, recording retry metrics and events.
+- **Idempotency:** Supports `Idempotency-Key` headers to prevent redundant agent processing and token costs.
+- **Trace Context Propagation:** Automatically injects and extracts W3C OpenTelemetry trace context across the asynchronous queue boundary to preserve distributed Jaeger traces.
+
+### 16.6 Running the Backend & Tests
+
+Start the API Gateway:
+```bash
+uvicorn src.backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Start the Background Worker:
+```bash
+python -m src.backend.worker
+```
+
+Run Automated Tests:
+```bash
+pytest -v tests
+```
+
+Access Swagger Documentation:
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
 
 ---
 
