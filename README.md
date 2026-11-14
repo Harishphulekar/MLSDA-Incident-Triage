@@ -1,197 +1,325 @@
-# Production Incident Triage and Runbook Assistant
+# MLSDA-Incident-Triage
 
-**Course**: ML System Design and AgentOps (UE24AM342AA5) — Mini Project 08  
-**Team**: Team 04  
+**MLSDA Mini Project 08 – Production Incident Triage and Runbook Assistant**
+
+**Course:** ML System Design and AgentOps (UE24AM342AA5)  
+**Team:** Team 04
 
 ---
 
 ## 1. Project Overview
-The **Production Incident Triage and Runbook Assistant** is an intelligent on-call assistant designed to triage production infrastructure alerts (e.g., PostgreSQL database disk saturation, replication lag, connection spikes, deadlock waves). It ingests raw alerts, retrieves authoritative runbooks and PostgreSQL documentation, performs multi-agent verification of factual evidence, and generates cited advisory recommendations for human SRE and DBA engineers.
 
----
+The **Production Incident Triage and Runbook Assistant** is an intelligent on-call assistant designed to help triage production infrastructure alerts, including PostgreSQL database disk saturation, replication lag, connection spikes and deadlock waves.
 
-## 2. Team Architecture & Service Boundaries
-The project is organized into four distinct modules developed collaboratively:
+It ingests raw alerts, retrieves relevant runbooks and PostgreSQL documentation, performs multi-agent evidence verification, and generates cited advisory recommendations for human SRE and DBA engineers.
 
-1. **Module 1: Backend and API** (`src/backend/`):
-   - FastAPI gateway handling ingestion, schema validation, rate limiting, and response serialization.
-   - Redis-backed asynchronous task queue (`src/backend/queue.py`) and background worker (`src/backend/worker.py`).
-2. **Module 2: Corpus and RAG** (`src/rag/`):
-   - Authoritative PostgreSQL technical documentation (`Chapter 26.2.5: Replication Slots`) and incident runbooks.
-   - Vector database retrieval interface with domain-weighted keyword scoring.
-3. **Module 3: Multi-Agent & ML** (`src/agents/`):
-   - **Triage Agent**: Classifies alerts, assigns severity (SEV1-SEV4), and forms preliminary hypotheses.
-   - **Retrieval Agent**: Queries knowledge corpus for authoritative runbooks matching incident symptoms.
-   - **Verification Agent**: Verifies that diagnostic claims are anchored in factual evidence, checks replication slot WAL retention, and flags insufficient evidence.
-   - **Orchestrator**: Coordinates the pipeline, applies security guardrails, and records telemetry.
-4. **Module 4: AgentOps, DevOps, Observability & Evaluation** (`src/agentops/` - *Our Module*):
-   - Production Docker Compose deployment, Prometheus metrics, Grafana dashboards, and Jaeger tracing.
-   - Prompt version management (`prompts/`), security guardrails, TruLens-compatible evaluation suite, and Locust load testing.
+The system particularly addresses incidents where the underlying cause is not immediately obvious, such as PostgreSQL replication-slot WAL retention causing disk usage to increase while table and index sizes remain stable.
 
----
+## 2. Team Architecture and Service Boundaries
 
-## 3. Docker Setup & Deployment
-The environment runs 7 containerized services defined in `docker-compose.yml`:
-- `api`: FastAPI application (Port 8000).
-- `agent-worker`: Asynchronous background multi-agent worker process.
-- `redis`: Redis 7 message queue and state store (Port 6379).
-- `vector-db`: ChromaDB vector database (Port 8001 -> 8000).
-- `prometheus`: Prometheus metric scraper (Port 9090).
-- `grafana`: Grafana operational dashboards (Port 3000).
-- `jaeger`: Jaeger all-in-one distributed tracing collector (Ports 16686, 4317, 4318).
+The project is organized into four collaborative modules.
 
-### Starting the Services
-Build and start all services in detached mode:
+### Module 1: Backend and API (`src/backend/`)
+
+- FastAPI gateway for incident ingestion, schema validation and response serialization.
+- Redis-backed asynchronous task queue.
+- Background worker for incident processing.
+
+### Module 2: Corpus and RAG (`src/rag/`)
+
+- PostgreSQL technical documentation, including replication slots and WAL retention.
+- Incident runbooks covering disk saturation, replication lag, connection exhaustion and other operational issues.
+- Retrieval interface with domain-weighted keyword scoring.
+
+### Module 3: Multi-Agent and ML (`src/agents/`)
+
+- **Triage Agent:** Classifies alerts, assigns severity (SEV1–SEV4), and forms preliminary hypotheses.
+- **Retrieval Agent:** Searches the knowledge corpus for relevant technical evidence and runbooks.
+- **Verification Agent:** Checks whether diagnostic claims are supported by retrieved evidence and flags insufficient evidence.
+- **Orchestrator:** Coordinates the incident-processing pipeline and agent execution.
+
+### Module 4: AgentOps, DevOps, Observability and Evaluation (`src/agentops/`)
+
+- Docker Compose deployment configuration.
+- Prometheus metrics, Grafana dashboards and Jaeger distributed tracing.
+- Structured logging and correlation IDs.
+- Prompt version management and security guardrails.
+- Evaluation scenarios, metric calculations and prompt comparisons.
+- Load-testing scripts, caching, rate limiting, feedback and cost tracking.
+
+## 3. Project Structure
+
+```text
+MLSDA-Incident-Triage/
+├── docs/
+│   ├── AGENTOPS_SYSTEM_DESIGN.md
+│   └── AGENTOPS_AUDIT_REPORT.md
+├── grafana/
+│   ├── dashboards/
+│   └── provisioning/
+├── locust/
+├── prompts/
+├── prometheus/
+├── src/
+│   ├── agentops/
+│   │   ├── evaluation/
+│   │   └── guardrails/
+│   ├── agents/
+│   ├── backend/
+│   └── rag/
+│       └── corpus/
+├── tests/
+├── docker-compose.yml
+├── Dockerfile.api
+├── Dockerfile.worker
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+## 4. Docker Setup and Deployment
+
+The Docker Compose configuration defines seven services:
+
+| Service | Purpose | Port |
+|---|---|---|
+| `api` | FastAPI application | 8000 |
+| `agent-worker` | Background incident processing | — |
+| `redis` | Message queue and state store | 6379 |
+| `vector-db` | ChromaDB vector database | 8001 |
+| `prometheus` | Metrics collection | 9090 |
+| `grafana` | Monitoring dashboards | 3000 |
+| `jaeger` | Distributed tracing | 16686, 4317, 4318 |
+
+### Start the services
+
 ```bash
 docker compose up --build -d
 ```
-Verify container health:
+
+### Check service status
+
 ```bash
 docker compose ps
 ```
 
----
+**Note:** These are configured deployment services. Actual container startup and health must be verified in an environment with Docker running.
 
-## 4. Environment Configuration
-Configuration is injected at runtime using environment variables. See `.env.example` for reference.
-To configure:
+## 5. Environment Configuration
+
+Configuration is supplied through environment variables. Refer to `.env.example`.
+
+Create a local environment file:
+
 ```bash
 cp .env.example .env
 ```
-Key configuration parameters:
+
+Important configuration parameters include:
+
 - `ACTIVE_PROMPT_VERSION`: Active prompt version (`v1.0.0` or `v1.1.0`).
-- `LLM_PROVIDER`: Model provider (`stub` for offline/load testing, or `gpt-4o-mini`).
-- `STUB_MODEL_LATENCY_MS`: Simulated inference delay in milliseconds (default: `150`).
-- `RATE_LIMIT_ENABLED`: Enforce per-client request limits (default: `true`).
-- `RATE_LIMIT_REQUESTS_PER_MINUTE`: Permitted request quota (default: `60`).
-- `ENABLE_TRACING`: Export traces to Jaeger (default: `true`).
+- `LLM_PROVIDER`: Model provider, including the stub provider for offline testing.
+- `STUB_MODEL_LATENCY_MS`: Simulated inference delay.
+- `RATE_LIMIT_ENABLED`: Enables request rate limiting.
+- `RATE_LIMIT_REQUESTS_PER_MINUTE`: Request quota per minute.
+- `ENABLE_TRACING`: Enables distributed tracing.
 
----
+Do not commit `.env` or real API credentials to GitHub.
 
-## 5. Prometheus and Grafana Access
-- **Prometheus UI**: [http://localhost:9090](http://localhost:9090)
-  - Raw Metrics Endpoint: [http://localhost:8000/metrics](http://localhost:8000/metrics)
-- **Grafana Dashboards**: [http://localhost:3000](http://localhost:3000)
-  - **Credentials**: Username `admin`, Password `admin`.
-  - **Pre-provisioned Dashboard**: *Production Incident Triage & Runbook Assistant - AgentOps*.
-  - **Panels**: Overall Health, p50/p95 Latency, Throughput, API Error Rate, Agent Success Rate, Agent Step Latency, Tool Calls, Retry Rate, Queue Depth, Process CPU/RAM, and LLM Cost.
+## 6. Prometheus and Grafana Monitoring
 
----
+Configured monitoring endpoints:
 
-## 6. Jaeger Distributed Tracing
-- **Jaeger Web UI**: [http://localhost:16686](http://localhost:16686)
-- Trace spans are emitted via OpenTelemetry gRPC to `jaeger:4317`.
-- Spans include:
-  - `IncidentPipeline.e2e` (with `incident.correlation_id` and `incident.run_id`).
-  - `TriageAgent.execute`
-  - `RetrievalAgent.execute`
-  - `RetrievalAgent.search_runbooks` (tool call)
-  - `VerificationAgent.execute`
+- **Prometheus:** http://localhost:9090
+- **Application metrics:** http://localhost:8000/metrics
+- **Grafana:** http://localhost:3000
 
----
+The Grafana dashboard includes panels for:
 
-## 7. Evaluation Dataset Structure
-The benchmark dataset is located at `src/agentops/evaluation/scenarios.json` and contains 20 synthetic scenarios covering:
-- Faculty reference scenario (`SCEN-001-FACULTY-REF`: Primary disk climbing steadily, table/index flat, cause unknown).
-- Active WAL archiver failure (`SCEN-002`).
-- Standby replication lag (`SCEN-003`).
-- Connection exhaustion (`SCEN-004`).
-- Slow query sequential scans (`SCEN-005`).
-- Lock deadlocks (`SCEN-006`).
-- Linux OOM killer termination (`SCEN-007`).
-- Autovacuum freeze / transaction ID wraparound (`SCEN-009`).
-- Checkpoint I/O spikes (`SCEN-010`).
-- Downstream Redis dependency failure (`SCEN-011`).
-- Inter-region network split-brain (`SCEN-012`).
-- Ambiguous incidents requiring human escalation (`SCEN-014`).
-- Unsupported hardware glitches (`SCEN-015`).
-- Adversarial prompt injection attacks (`SCEN-017`, `SCEN-018`).
-- Insufficient retrieval evidence (`SCEN-019`).
-- Toxic on-call notes (`SCEN-020`).
+- Overall system health.
+- p50 and p95 latency.
+- Throughput and API error rate.
+- Agent success rate and execution latency.
+- Tool calls and retry rate.
+- Queue depth.
+- Process CPU and memory.
+- LLM cost tracking.
 
----
+The dashboard and provisioning configuration are located under `grafana/`.
 
-## 8. How to Run Evaluation
-Run the batch evaluation CLI across all 20 scenarios:
+## 7. Jaeger Distributed Tracing
+
+**Jaeger Web UI:** http://localhost:16686
+
+OpenTelemetry instrumentation is configured to export traces to Jaeger.
+
+Important spans include:
+
+- `IncidentPipeline.e2e`
+- `TriageAgent.execute`
+- `RetrievalAgent.execute`
+- `RetrievalAgent.search_runbooks`
+- `VerificationAgent.execute`
+
+Correlation IDs and incident run IDs help trace individual incident-processing executions.
+
+## 8. Evaluation Dataset
+
+The evaluation dataset is located at:
+
+```text
+src/agentops/evaluation/scenarios.json
+```
+
+It contains 20 synthetic incident scenarios covering:
+
+- PostgreSQL disk growth and WAL retention.
+- WAL archiver failures.
+- Standby replication lag.
+- Connection exhaustion.
+- Slow queries and sequential scans.
+- Deadlocks and lock contention.
+- Linux OOM events.
+- Transaction ID wraparound.
+- Checkpoint I/O spikes.
+- Redis dependency failures.
+- Network partition scenarios.
+- Ambiguous incidents requiring human escalation.
+- Unsupported hardware failures.
+- Prompt injection attempts.
+- Insufficient retrieval evidence.
+- Toxic on-call notes.
+
+The faculty reference scenario is:
+
+`SCEN-001-FACULTY-REF`
+
+It represents a primary database whose disk usage is increasing while table and index sizes remain stable, requiring investigation of alternative causes such as WAL retention.
+
+## 9. Running the Evaluation
+
+Run the evaluation across all 20 scenarios:
+
 ```bash
 python -m src.agentops.evaluation.eval_runner --prompt-version v1.1.0 --output eval_results_v1.1.0.json
 ```
-This prints the TruLens-compatible metrics summary table and saves detailed output to JSON and CSV.
 
----
+The evaluation runner generates metric summaries and saves detailed results in JSON and CSV formats.
 
-## 9. How to Compare Prompt Versions
-To compare baseline (`v1.0.0`) vs improved (`v1.1.0`):
-1. Evaluate baseline prompt:
-   ```bash
-   python -m src.agentops.evaluation.eval_runner --prompt-version v1.0.0 --output eval_results_v1.0.0.json
-   ```
-2. Evaluate improved prompt:
-   ```bash
-   python -m src.agentops.evaluation.eval_runner --prompt-version v1.1.0 --output eval_results_v1.1.0_improved.json
-   ```
-3. Run the automated comparison:
-   ```bash
-   python -m src.agentops.evaluation.eval_runner --compare eval_results_v1.0.0.json eval_results_v1.1.0_improved.json
-   ```
+**Evaluation note:** The current implementation uses deterministic, heuristic-based metric calculations with TruLens-compatible metric naming. These results should be interpreted as preliminary evaluation results, not as independently validated semantic LLM-as-a-judge scores.
 
----
+## 10. Comparing Prompt Versions
 
-## 10. How to Run Locust Load Testing
-### Benchmark Harness
-Run the automated multi-threaded benchmark measuring RPS, p50, p95, error rates, and concurrency bottlenecks:
+The project includes two prompt versions:
+
+- `v1.0.0`: Baseline prompt.
+- `v1.1.0`: Improved prompt.
+
+Evaluate the baseline:
+
+```bash
+python -m src.agentops.evaluation.eval_runner --prompt-version v1.0.0 --output eval_results_v1.0.0.json
+```
+
+Evaluate the improved prompt:
+
+```bash
+python -m src.agentops.evaluation.eval_runner --prompt-version v1.1.0 --output eval_results_v1.1.0_improved.json
+```
+
+Compare the results:
+
+```bash
+python -m src.agentops.evaluation.eval_runner --compare eval_results_v1.0.0.json eval_results_v1.1.0_improved.json
+```
+
+The comparison helps assess changes in groundedness, context relevance, faithfulness and hallucination-related metrics.
+
+## 11. Load Testing and Performance Evaluation
+
+The project contains a custom benchmark harness:
+
 ```bash
 python -m locust.run_load_test
 ```
-### Live Locust UI
-To launch the interactive Locust web interface:
+
+It is designed to measure:
+
+- Requests per second.
+- p50 and p95 latency.
+- Error rates.
+- Concurrent request handling.
+
+An interactive Locust test can also be started with:
+
 ```bash
 locust -f locust/locustfile.py --host http://localhost:8000
 ```
-Open [http://localhost:8089](http://localhost:8089) in your browser.
 
----
+Open:
 
-## 11. How to Scale Workers
-Scale the asynchronous agent worker service to 3 instances horizontally:
+http://localhost:8089
+
+**Important:** The custom benchmark harness and the interactive Locust test are separate. Performance results generated by the custom harness should not be described as actual Locust measurements unless Locust has been installed and the test has been run successfully.
+
+## 12. Scaling Background Workers
+
+The Compose configuration supports scaling the worker service:
+
 ```bash
 docker compose up --build --scale agent-worker=3 -d
 ```
-Verify worker scaling:
+
+Verify worker instances:
+
 ```bash
 docker compose ps agent-worker
 ```
 
----
+Actual horizontal scaling must be verified with Docker running.
 
-## 12. How to Run Tests
-Execute the automated test suite using pytest:
+## 13. Running Automated Tests
+
+Run the test suite:
+
 ```bash
 pytest -v tests
 ```
-The suite verifies:
-- Docker and provisioning file syntax.
+
+The tests cover:
+
+- Docker and provisioning configuration syntax.
 - Structured JSON logging and secret sanitization.
 - Correlation ID propagation.
-- Prometheus metric definitions and export format.
-- Prompt version management and template formatting.
-- Prompt injection defense, output filtering, and toxicity checks.
-- LLM token and cost tracking.
-- Retrieval caching and volatile-state safety guards.
-- Per-client sliding window rate limiting.
-- Stub LLM reasoning on faculty scenarios.
-- TruLens evaluation metric calculations.
-- Feedback persistence and quality sampling.
+- Prometheus metric definitions.
+- Prompt version management.
+- Prompt injection defense and output filtering.
+- Toxicity checks.
+- Token and cost tracking.
+- Retrieval caching.
+- Rate limiting.
+- Stub LLM behavior.
+- Evaluation metric calculations.
+- Feedback persistence.
+
+## 14. Security Considerations and Limitations
+
+- **Prompt injection defense:** The current heuristic-based detection protects against known instruction override patterns but may not detect sophisticated or obfuscated attacks.
+- **Human-in-the-loop:** The assistant provides advisory recommendations. It must not autonomously execute shell commands or database DDL.
+- **Citation validation:** Current citation validation uses substring matching against retrieved context and may not recognize every valid paraphrase.
+- **Evaluation:** Heuristic metrics are useful for preliminary comparisons but do not replace independent semantic evaluation.
+- **Deployment:** Docker-based deployment and live load testing require verification in a suitable runtime environment.
+
+## 15. Audit and Implementation Documentation
+
+Additional technical documentation:
+
+- `docs/AGENTOPS_SYSTEM_DESIGN.md` — AgentOps architecture and design.
+- `docs/AGENTOPS_AUDIT_REPORT.md` — Implementation audit, verification status and identified limitations.
 
 ---
 
-## 13. Security Limitations
-- **Heuristic Regex Injection Defense**: While effective against known override phrases (`ignore previous instructions`, `you are now DAN`), sophisticated zero-day obfuscations or multi-lingual jailbreaks may require a fine-tuned classifier or secondary LLM filter.
-- **Human-in-the-Loop Constraint**: The assistant strictly provides **advisory recommendations**; it does not and must not execute shell commands or database DDL autonomously.
-- **Output Validation**: Citation validation relies on substring match against retrieved context. Paraphrased quotes may occasionally require fuzzy string matching.
-
----
-
-## 14. Known Issues
-- In constrained Windows sandbox environments without loopback socket permissions, asynchronous event loop initialization for Starlette `TestClient` can block; the system provides synchronous execution adapters (`process_incident_sync`) to ensure tests and evaluation runners execute natively without network socket dependencies.
-- Vector database container requires persistent volume initialization on first boot.
+**Project:** Production Incident Triage and Runbook Assistant  
+**Course:** ML System Design and AgentOps  
+**Mini Project:** 08  
+**Team:** Team 04
