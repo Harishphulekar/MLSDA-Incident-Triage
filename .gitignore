@@ -42,7 +42,13 @@ coverage.xml
 .hypothesis/
 
 # Data & Persistence
-data/
+data/*
+!data/corpus/
+!data/runbooks/
+!data/metadata/
+data/faiss/
+data/chroma/
+data/cache/
 *.db
 *.sqlite3
 chroma_db/
