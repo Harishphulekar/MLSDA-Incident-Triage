@@ -25,11 +25,18 @@ The project is organized into four collaborative modules.
 - Redis-backed asynchronous task queue.
 - Background worker for incident processing.
 
-### Module 2: Corpus and RAG (`src/rag/`)
+### Module 2: Corpus, RAG and Knowledge Base (`src/rag/`)
 
-- PostgreSQL technical documentation, including replication slots and WAL retention.
-- Incident runbooks covering disk saturation, replication lag, connection exhaustion and other operational issues.
-- Retrieval interface with domain-weighted keyword scoring.
+- **PostgreSQL 16 Official Documentation Corpus:** Structured, traceable knowledge base spanning 9 operational domains (monitoring, WAL, replication, replication slots, storage, connections, performance, configuration, and backup/recovery).
+- **Three Incident Runbooks:** Original, technically verified runbooks with PostgreSQL 16 SQL diagnostics:
+  - `RB-PG-001`: Disk Space Saturation & WAL Retention Triage (SEV-1/SEV-2)
+  - `RB-PG-002`: Standby Replication Lag & Desynchronization (SEV-2)
+  - `RB-PG-003`: Connection Exhaustion & Pool Saturation (SEV-1/SEV-2)
+- **Severity & Escalation Policy:** Machine-readable severity policy (`data/metadata/severity_escalation_policy.json`) governing SEV1–SEV4 response criteria, human approval gates, and evidence sufficiency rules.
+- **Dense Vector Search:** Sentence-Transformers (`all-MiniLM-L6-v2`, 384 dimensions) with persistent FAISS vector index (`IndexFlatIP`) and metadata store.
+- **Iterative Retrieval Engine:** Multi-hop query expansion, evidence gap analysis, and bounded retrieval loops ($\le 3$ iterations) to resolve non-obvious incidents like silent disk filling from stalled replication slots.
+- **Verifiable Citations:** Zero-hallucination citation formatter linking agent recommendations directly to official PostgreSQL 16 documentation URLs and section anchors.
+- **Technical Design Document:** Comprehensive design specification in [`docs/CORPUS_RAG_DESIGN.md`](docs/CORPUS_RAG_DESIGN.md).
 
 ### Module 3: Multi-Agent and ML (`src/agents/`)
 
@@ -51,7 +58,14 @@ The project is organized into four collaborative modules.
 
 ```text
 MLSDA-Incident-Triage/
+├── data/
+│   ├── corpus/               # Official PostgreSQL 16 documentation
+│   ├── runbooks/             # Original incident runbooks (RB-PG-001, 002, 003)
+│   ├── metadata/             # Corpus manifest & severity escalation policy
+│   └── faiss/                # Persistent FAISS vector index & metadata
 ├── docs/
+│   ├── CORPUS_RAG_DESIGN.md  # Module 2 technical design specification
+│   ├── BACKEND_API_DESIGN.md
 │   ├── AGENTOPS_SYSTEM_DESIGN.md
 │   └── AGENTOPS_AUDIT_REPORT.md
 ├── grafana/
