@@ -1,13 +1,92 @@
 """Semantic Embedding Generation Module using Sentence-Transformers."""
 import os
+import re
 import pickle
 import hashlib
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 import numpy as np
-from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = None
 
 DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2"
 EMBEDDING_DIMENSION = 384
+
+class _DeterministicFallbackTransformer:
+    """Lightweight deterministic feature-hashing embedding model when sentence-transformers is unavailable."""
+
+    def __init__(self, dimension: int = EMBEDDING_DIMENSION):
+        self.dimension = dimension
+
+    def _stem(self, word: str) -> str:
+        w = word.lower()
+        for suffix in ["ing", "tion", "tions", "ed", "es", "s", "ment", "ments", "ance", "er", "ers"]:
+            if len(w) > len(suffix) + 3 and w.endswith(suffix):
+                return w[:-len(suffix)]
+        return w
+
+    def encode(
+        self,
+        sentences: Union[str, List[str]],
+        batch_size: int = 32,
+        show_progress_bar: bool = False,
+        normalize_embeddings: bool = True,
+        convert_to_numpy: bool = True
+    ) -> np.ndarray:
+        if isinstance(sentences, str):
+            sentences = [sentences]
+
+        stopwords = {"a", "an", "the", "and", "or", "in", "on", "at", "to", "for", "of", "with", "is", "are", "was", "were"}
+        acronym_map = {
+            "wal": ["write", "ahead", "log"],
+            "io": ["input", "output"],
+            "oom": ["out", "of", "memory"],
+            "conn": ["connection"]
+        }
+        vectors = []
+        for text in sentences:
+            vec = np.zeros(self.dimension, dtype=np.float32)
+            clean_text = text.lower().strip()
+            raw_words = re.findall(r"[a-z0-9_]+", clean_text)
+            words = []
+            for w in raw_words:
+                words.append(w)
+                if w in acronym_map:
+                    words.extend(acronym_map[w])
+
+            for raw_w in words:
+                if raw_w in stopwords:
+                    continue
+                stemmed = self._stem(raw_w)
+                weight = 4.0 if len(stemmed) >= 4 else 2.0
+
+                # Hash stemmed token
+                h = int(hashlib.md5(stemmed.encode("utf-8")).hexdigest(), 16)
+                idx = h % self.dimension
+                vec[idx] += weight
+
+                # Hash raw word
+                hw = int(hashlib.md5(raw_w.encode("utf-8")).hexdigest(), 16)
+                vec[hw % self.dimension] += 2.0
+
+                # Character 3-grams
+                for i in range(len(stemmed) - 2):
+                    tri = stemmed[i:i+3]
+                    htri = int(hashlib.md5(tri.encode("utf-8")).hexdigest(), 16)
+                    vec[htri % self.dimension] += 1.0
+
+            if normalize_embeddings:
+                norm = np.linalg.norm(vec)
+                if norm > 1e-9:
+                    vec = vec / norm
+                else:
+                    vec[0] = 1.0
+            vectors.append(vec)
+
+        arr = np.array(vectors, dtype=np.float32)
+        return arr
 
 class EmbeddingManager:
     """Manages sentence embedding generation, caching, and unit normalization."""
@@ -21,16 +100,19 @@ class EmbeddingManager:
         self.model_name = model_name
         self.cache_path = cache_path
         self.device = device
-        self._model: Optional[SentenceTransformer] = None
+        self._model: Any = None
         self._cache: dict = {}
         self.dimension = EMBEDDING_DIMENSION
         self._load_cache()
 
     @property
-    def model(self) -> SentenceTransformer:
-        """Lazy-loads the SentenceTransformer model on first usage."""
+    def model(self) -> Any:
+        """Lazy-loads the SentenceTransformer model on first usage, with fallback adapter if unavailable."""
         if self._model is None:
-            self._model = SentenceTransformer(self.model_name, device=self.device)
+            if SentenceTransformer is not None:
+                self._model = SentenceTransformer(self.model_name, device=self.device)
+            else:
+                self._model = _DeterministicFallbackTransformer(self.dimension)
         return self._model
 
     def _load_cache(self):

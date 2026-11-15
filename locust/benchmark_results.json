@@ -6,11 +6,11 @@
     {
       "concurrency": 1,
       "total_requests": 25,
-      "total_duration_s": 0.963,
-      "rps": 25.96,
-      "p50_ms": 52.63,
-      "p95_ms": 53.86,
-      "p99_ms": 54.74,
+      "total_duration_s": 1.101,
+      "rps": 22.71,
+      "p50_ms": 53.42,
+      "p95_ms": 82.72,
+      "p99_ms": 112.98,
       "error_rate_pct": 0.0,
       "slo_target_ms": 350.0,
       "slo_met": true
@@ -18,11 +18,11 @@
     {
       "concurrency": 5,
       "total_requests": 25,
-      "total_duration_s": 0.216,
-      "rps": 115.51,
-      "p50_ms": 52.53,
-      "p95_ms": 57.84,
-      "p99_ms": 58.13,
+      "total_duration_s": 0.244,
+      "rps": 102.46,
+      "p50_ms": 55.63,
+      "p95_ms": 63.14,
+      "p99_ms": 64.35,
       "error_rate_pct": 0.0,
       "slo_target_ms": 350.0,
       "slo_met": true
@@ -30,11 +30,11 @@
     {
       "concurrency": 10,
       "total_requests": 25,
-      "total_duration_s": 0.139,
-      "rps": 180.27,
-      "p50_ms": 56.33,
-      "p95_ms": 71.89,
-      "p99_ms": 72.51,
+      "total_duration_s": 0.149,
+      "rps": 167.54,
+      "p50_ms": 56.59,
+      "p95_ms": 74.26,
+      "p99_ms": 74.43,
       "error_rate_pct": 0.0,
       "slo_target_ms": 350.0,
       "slo_met": true
@@ -42,19 +42,19 @@
     {
       "concurrency": 20,
       "total_requests": 25,
-      "total_duration_s": 0.089,
-      "rps": 281.32,
-      "p50_ms": 64.87,
-      "p95_ms": 71.61,
-      "p99_ms": 71.69,
+      "total_duration_s": 0.106,
+      "rps": 235.63,
+      "p50_ms": 69.85,
+      "p95_ms": 83.24,
+      "p99_ms": 84.09,
       "error_rate_pct": 0.0,
       "slo_target_ms": 350.0,
       "slo_met": true
     }
   ],
   "worker_scaling_comparison": {
-    "single_worker_rps": 115.51,
-    "three_worker_projected_rps": 329.2,
+    "single_worker_rps": 102.46,
+    "three_worker_projected_rps": 292.01,
     "scaling_factor": 2.85
   }
 }

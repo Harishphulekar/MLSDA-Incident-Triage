@@ -116,7 +116,8 @@ class IncidentOrchestrator:
                     retrieved_docs=retrieved_docs,
                     alert_payload=alert_payload,
                     on_call_notes=on_call_notes,
-                    run_id=r_id
+                    run_id=r_id,
+                    prompt_version=prompt_version
                 )
 
                 # 8. Merge Pipeline Result

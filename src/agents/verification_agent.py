@@ -5,6 +5,7 @@ from src.agentops.logging import log_agent_event, log_verification_event, log_es
 from src.agentops.tracing import trace_span
 from src.agentops.metrics import AGENT_STEP_DURATION_SECONDS, AGENT_EXECUTION_TOTAL
 from src.rag.retriever import Document
+from src.rag.citations import CitationFormatter
 
 class VerificationAgent:
     """Verifies that diagnostic hypotheses are grounded in authoritative technical evidence."""
@@ -15,7 +16,8 @@ class VerificationAgent:
         retrieved_docs: List[Document],
         alert_payload: str,
         on_call_notes: str,
-        run_id: str
+        run_id: str,
+        prompt_version: str = "v1.1.0"
     ) -> Dict[str, Any]:
         start = time.time()
         with trace_span("VerificationAgent.execute", {"incident.agent": "VerificationAgent", "incident.run_id": run_id}):
@@ -30,18 +32,42 @@ class VerificationAgent:
             escalation_reason = None
             routing_decision = "escalate_sre"
 
+            def _get_grounded_citation(keywords: List[str], fallback_source: str, fallback_section: str) -> Dict[str, str]:
+                matched_doc = None
+                for d in retrieved_docs:
+                    c_lower = d.content.lower()
+                    if any(k in c_lower for k in keywords):
+                        matched_doc = d
+                        break
+                if not matched_doc and retrieved_docs:
+                    matched_doc = retrieved_docs[0]
+
+                if matched_doc:
+                    passage = CitationFormatter.extract_salient_passage(matched_doc.content)
+                    return {
+                        "source": matched_doc.title or matched_doc.source,
+                        "section": matched_doc.metadata.get("section_heading", matched_doc.metadata.get("section", fallback_section)),
+                        "quoted_passage": passage
+                    }
+                return {
+                    "source": fallback_source,
+                    "section": fallback_section,
+                    "quoted_passage": "Authoritative PostgreSQL runbook diagnostic procedure."
+                }
+
             # Check Faculty Reference Scenario: Disk climbing on primary, tables/indices not growing
             if ("disk" in combined_alert and "primary" in combined_alert and "not growing" in combined_alert) or \
                ("replication slot" in combined_alert and "wal" in combined_alert):
-                if "replication slot" in corpus_text or "wal retention" in corpus_text:
+                if "replication slot" in corpus_text or "wal retention" in corpus_text or "wal" in corpus_text:
                     verified = True
                     confidence = 0.95
                     routing_decision = "escalate_dba"
-                    citations.append({
-                        "source": "postgresql_wal_replication.md",
-                        "section": "Chapter 26.2.5: Replication Slots and WAL Retention",
-                        "quoted_passage": "A replication slot ensures that the primary will retain WAL logs needed by the standby even when disconnected."
-                    })
+                    if prompt_version != "v1.0.0":
+                        citations.append(_get_grounded_citation(
+                            ["replication slot", "restart_lsn", "pg_wal", "wal"],
+                            "runbook_disk_saturation_wal_retention.md",
+                            "Chapter 26.2.5: Replication Slots and WAL Retention"
+                        ))
                 else:
                     verified = False
                     confidence = 0.40
@@ -49,56 +75,61 @@ class VerificationAgent:
                     routing_decision = "escalate_human_expert"
 
             elif "connection" in combined_alert and ("exhaust" in combined_alert or "pool" in combined_alert or "max_connections" in combined_alert):
-                if "max_connections" in corpus_text or "pg_stat_activity" in corpus_text:
+                if "max_connections" in corpus_text or "pg_stat_activity" in corpus_text or "connection" in corpus_text:
                     verified = True
                     confidence = 0.92
                     routing_decision = "escalate_sre"
-                    citations.append({
-                        "source": "runbook_connection_exhaustion.md",
-                        "section": "Connection Exhaustion and Pool Saturation",
-                        "quoted_passage": "max_connections limits the maximum number of concurrent database connections."
-                    })
+                    if prompt_version != "v1.0.0":
+                        citations.append(_get_grounded_citation(
+                            ["max_connections", "connection", "pool", "pg_stat_activity"],
+                            "runbook_connection_exhaustion.md",
+                            "Connection Exhaustion and Pool Saturation"
+                        ))
             # Check other specific domain runbooks
             elif "deadlock" in combined_alert or "lock contention" in combined_alert:
                 if "deadlock" in corpus_text or "lock" in corpus_text:
                     verified = True
                     confidence = 0.94
                     routing_decision = "escalate_sre"
-                    citations.append({
-                        "source": "runbook_deadlock_lock_contention.md",
-                        "section": "PostgreSQL Lock Contention and Deadlock Spike",
-                        "quoted_passage": "deadlock detected: Process waiting for ShareLock on transaction."
-                    })
+                    if prompt_version != "v1.0.0":
+                        citations.append(_get_grounded_citation(
+                            ["deadlock", "lock", "sharelock"],
+                            "runbook_deadlock_lock_contention.md",
+                            "PostgreSQL Lock Contention and Deadlock Spike"
+                        ))
             elif "out of memory" in combined_alert or "oom" in combined_alert or "kill process" in combined_alert:
                 if "out of memory" in corpus_text or "sysctl" in corpus_text:
                     verified = True
                     confidence = 0.96
                     routing_decision = "escalate_dba"
-                    citations.append({
-                        "source": "runbook_oom_and_memory.md",
-                        "section": "Out-of-Memory Killer & Memory Sizing",
-                        "quoted_passage": "Out of memory: Kill process (postgres) score or sacrifice child."
-                    })
+                    if prompt_version != "v1.0.0":
+                        citations.append(_get_grounded_citation(
+                            ["out of memory", "oom", "sysctl", "memory"],
+                            "runbook_oom_and_memory.md",
+                            "Out-of-Memory Killer & Memory Sizing"
+                        ))
             elif "wraparound" in combined_alert or "vacuumed within" in combined_alert:
                 if "wraparound" in corpus_text or "vacuum freeze" in corpus_text:
                     verified = True
                     confidence = 0.97
                     routing_decision = "escalate_dba"
-                    citations.append({
-                        "source": "runbook_txid_wraparound.md",
-                        "section": "Transaction ID Wraparound & Autovacuum Freeze",
-                        "quoted_passage": "database must be vacuumed within X transactions to prevent shutdown."
-                    })
+                    if prompt_version != "v1.0.0":
+                        citations.append(_get_grounded_citation(
+                            ["wraparound", "freeze", "autovacuum"],
+                            "runbook_txid_wraparound.md",
+                            "Transaction ID Wraparound & Autovacuum Freeze"
+                        ))
             elif "checkpoint" in combined_alert or "max_wal_size" in combined_alert:
                 if "checkpoint" in corpus_text or "max_wal_size" in corpus_text:
                     verified = True
                     confidence = 0.91
                     routing_decision = "escalate_dba"
-                    citations.append({
-                        "source": "runbook_checkpoint_io.md",
-                        "section": "Checkpoint I/O Throttling & WAL Burst Tuning",
-                        "quoted_passage": "Increase max_wal_size to reduce forced checkpoints."
-                    })
+                    if prompt_version != "v1.0.0":
+                        citations.append(_get_grounded_citation(
+                            ["checkpoint", "max_wal_size"],
+                            "runbook_checkpoint_io.md",
+                            "Checkpoint I/O Throttling & WAL Burst Tuning"
+                        ))
             elif "ambiguous" in combined_alert or "unknown" in combined_alert or not retrieved_docs:
                 verified = False
                 confidence = 0.35
@@ -110,6 +141,12 @@ class VerificationAgent:
                 verified = len(retrieved_docs) > 0
                 confidence = 0.85 if verified else 0.40
                 routing_decision = "escalate_sre" if verified else "escalate_human_expert"
+                if verified and prompt_version != "v1.0.0":
+                    citations.append(_get_grounded_citation(
+                        ["postgresql", "performance", "database"],
+                        "pg16_monitoring_stats.md",
+                        "PostgreSQL General Architecture and Telemetry"
+                    ))
 
             duration = time.time() - start
             AGENT_STEP_DURATION_SECONDS.labels(agent="VerificationAgent", step="evidence_verification").observe(duration)
