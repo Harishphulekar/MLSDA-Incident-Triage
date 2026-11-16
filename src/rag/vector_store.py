@@ -1,10 +1,54 @@
 """Vector Database Module: Persistent FAISS Indexing and Metadata Filtering."""
 import os
 import json
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
-import faiss
+
+try:
+    import faiss
+except ImportError:
+    faiss = None
+
 from src.rag.schema import ChunkMetadata, SearchResult
+
+class _NumpyIndexFlatIP:
+    """Numpy-based Inner Product (Cosine Similarity) index fallback when faiss-cpu is unavailable."""
+
+    def __init__(self, d: int):
+        self.d = d
+        self.vectors = np.empty((0, d), dtype=np.float32)
+
+    @property
+    def ntotal(self) -> int:
+        return len(self.vectors)
+
+    def add(self, x: np.ndarray):
+        x = np.asarray(x, dtype=np.float32)
+        if len(x.shape) == 1:
+            x = np.expand_dims(x, 0)
+        if len(self.vectors) == 0:
+            self.vectors = x
+        else:
+            self.vectors = np.vstack([self.vectors, x])
+
+    def search(self, x: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
+        if len(self.vectors) == 0:
+            return np.empty((len(x), 0), dtype=np.float32), np.empty((len(x), 0), dtype=np.int64)
+        x = np.asarray(x, dtype=np.float32)
+        if len(x.shape) == 1:
+            x = np.expand_dims(x, 0)
+
+        # Dot product for Inner Product
+        scores_matrix = np.dot(x, self.vectors.T)
+        indices_list = []
+        scores_list = []
+        for scores in scores_matrix:
+            k_actual = min(k, len(scores))
+            top_k_indices = np.argsort(scores)[::-1][:k_actual]
+            top_k_scores = scores[top_k_indices]
+            indices_list.append(top_k_indices)
+            scores_list.append(top_k_scores)
+        return np.array(scores_list, dtype=np.float32), np.array(indices_list, dtype=np.int64)
 
 class FAISSVectorStore:
     """Manages persistent FAISS vector indexing with metadata storage and filtering."""
@@ -14,17 +58,33 @@ class FAISSVectorStore:
         self.index_file = os.path.join(persist_dir, "index.faiss")
         self.metadata_file = os.path.join(persist_dir, "metadata.json")
         self.dimension = 384
-        self.index: Optional[faiss.Index] = None
+        self.index: Any = None
         self.metadata: List[Dict[str, Any]] = []
         self._load()
 
     def _load(self):
         """Loads index and metadata from disk if available."""
-        if os.path.exists(self.index_file) and os.path.exists(self.metadata_file):
+        if os.path.exists(self.metadata_file):
             try:
-                self.index = faiss.read_index(self.index_file)
                 with open(self.metadata_file, "r", encoding="utf-8") as f:
                     self.metadata = json.load(f)
+                if faiss is not None and os.path.exists(self.index_file):
+                    try:
+                        self.index = faiss.read_index(self.index_file)
+                    except Exception:
+                        self.index = None
+                if self.index is None and os.path.exists(self.index_file):
+                    try:
+                        with open(self.index_file, "rb") as f:
+                            vecs = np.load(f)
+                        self.index = _NumpyIndexFlatIP(vecs.shape[1] if len(vecs) > 0 else self.dimension)
+                        self.index.vectors = vecs
+                    except Exception:
+                        self.index = None
+                elif self.index is None and os.path.exists(self.index_file + ".npy"):
+                    vecs = np.load(self.index_file + ".npy")
+                    self.index = _NumpyIndexFlatIP(vecs.shape[1] if len(vecs) > 0 else self.dimension)
+                    self.index.vectors = vecs
             except Exception:
                 self.index = None
                 self.metadata = []
@@ -33,7 +93,12 @@ class FAISSVectorStore:
         """Persists FAISS index and metadata to disk."""
         os.makedirs(self.persist_dir, exist_ok=True)
         if self.index is not None:
-            faiss.write_index(self.index, self.index_file)
+            if faiss is not None and hasattr(faiss, "write_index") and not isinstance(self.index, _NumpyIndexFlatIP):
+                faiss.write_index(self.index, self.index_file)
+            else:
+                vectors = getattr(self.index, "vectors", np.empty((0, self.dimension), dtype=np.float32))
+                with open(self.index_file, "wb") as f:
+                    np.save(f, vectors)
         with open(self.metadata_file, "w", encoding="utf-8") as f:
             json.dump(self.metadata, f, indent=2)
 
@@ -44,15 +109,22 @@ class FAISSVectorStore:
     def build_index(self, chunks: List[ChunkMetadata], embeddings: np.ndarray):
         """Constructs a new FAISS IndexFlatIP (Inner Product = Cosine Similarity for normalized vectors)."""
         if len(chunks) == 0 or len(embeddings) == 0:
-            self.index = faiss.IndexFlatIP(self.dimension)
+            if faiss is not None:
+                self.index = faiss.IndexFlatIP(self.dimension)
+            else:
+                self.index = _NumpyIndexFlatIP(self.dimension)
             self.metadata = []
             self.save()
             return
 
         dim = embeddings.shape[1]
         self.dimension = dim
-        self.index = faiss.IndexFlatIP(dim)
-        self.index.add(embeddings.astype(np.float32))
+        if faiss is not None:
+            self.index = faiss.IndexFlatIP(dim)
+            self.index.add(embeddings.astype(np.float32))
+        else:
+            self.index = _NumpyIndexFlatIP(dim)
+            self.index.add(embeddings.astype(np.float32))
         self.metadata = [c.to_dict() for c in chunks]
         self.save()
 

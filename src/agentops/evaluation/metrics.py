@@ -22,6 +22,8 @@ class EvaluationSummary(BaseModel):
     mean_hallucination_rate: float
     routing_accuracy: float
     human_escalation_precision: float
+    human_escalation_recall: float = 1.0
+    human_escalation_f1: float = 0.0
     total_cost_dollars: float
 
 def compute_context_relevance(alert_text: str, on_call_note: str, retrieved_docs: List[str]) -> float:

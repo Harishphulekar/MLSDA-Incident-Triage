@@ -20,6 +20,8 @@ from src.agentops.guardrails.toxicity import toxicity_checker
 from src.agentops.guardrails.output_filter import output_filter
 from src.agentops.caching import incident_cache
 from src.agentops.cost_tracker import cost_tracker
+from src.rag.retriever import Document
+from src.rag.iterative_retriever import iterative_retriever
 from src.agents.triage_agent import triage_agent
 from src.agents.retrieval_agent import retrieval_agent
 from src.agents.verification_agent import verification_agent
@@ -116,8 +118,84 @@ class IncidentOrchestrator:
                     retrieved_docs=retrieved_docs,
                     alert_payload=alert_payload,
                     on_call_notes=on_call_notes,
-                    run_id=r_id
+                    run_id=r_id,
+                    prompt_version=prompt_version
                 )
+
+                # 7b. Iterative Investigation: When initial evidence is insufficient, execute bounded re-retrieval
+                refinement_attempts = 0
+                max_refinements = 1  # Bounded to 1 additional retrieval attempt (prevents infinite loops)
+
+                while (not verification_res.get("evidence_sufficient", False) and
+                       refinement_attempts < max_refinements and
+                       verification_res.get("routing_decision") != "security_soc"):
+
+                    # Skip re-retrieval if alert is definitively malformed or hardware trap
+                    esc_reason = str(verification_res.get("escalation_reason", "")).lower()
+                    if "malformed" in esc_reason or "hardware" in esc_reason:
+                        break
+
+                    refinement_attempts += 1
+                    app_logger.info(
+                        f"Initial evidence insufficient for run '{r_id}' (attempt {refinement_attempts+1}). "
+                        f"Executing bounded iterative retrieval refinement."
+                    )
+
+                    with trace_span("IncidentPipeline.iterative_refinement", {
+                        "incident.run_id": r_id,
+                        "refinement_attempt": refinement_attempts
+                    }):
+                        log_agent_event("IncidentOrchestrator", "iterative_investigation", "refinement_start", {
+                            "attempt": refinement_attempts,
+                            "gap_reason": verification_res.get("escalation_reason")
+                        })
+
+                        iter_result = iterative_retriever.execute(
+                            query=f"{alert_payload} {on_call_notes}",
+                            initial_hypothesis=triage_res.get("hypothesis", ""),
+                            top_k_per_step=3
+                        )
+
+                        new_docs = [
+                            Document(
+                                id=d.chunk_id,
+                                source=d.document_id,
+                                title=d.source_title,
+                                content=d.relevant_text,
+                                metadata={
+                                    "section": d.section,
+                                    "source_url": d.source_url,
+                                    "postgresql_version": d.postgresql_version,
+                                    "category": d.category,
+                                    "document_type": d.document_type
+                                },
+                                score=d.similarity_score
+                            )
+                            for d in iter_result.final_evidence
+                        ]
+
+                        if new_docs:
+                            existing_ids = set(d.id for d in retrieved_docs)
+                            for nd in new_docs:
+                                if nd.id not in existing_ids:
+                                    retrieved_docs.append(nd)
+                                    existing_ids.add(nd.id)
+
+                        # Re-verify with accumulated evidence
+                        verification_res = verification_agent.verify_sync(
+                            hypothesis=triage_res.get("hypothesis", ""),
+                            retrieved_docs=retrieved_docs,
+                            alert_payload=alert_payload,
+                            on_call_notes=on_call_notes,
+                            run_id=r_id,
+                            prompt_version=prompt_version
+                        )
+
+                        log_agent_event("IncidentOrchestrator", "iterative_investigation", "refinement_completed", {
+                            "attempt": refinement_attempts,
+                            "evidence_sufficient": verification_res.get("evidence_sufficient"),
+                            "confidence": verification_res.get("confidence")
+                        })
 
                 # 8. Merge Pipeline Result
                 merged_output = {
@@ -142,7 +220,7 @@ class IncidentOrchestrator:
                 final_output = filter_res.sanitized_output
 
                 # 10. Record Cost & Execution Steps
-                steps_count = 3  # Triage, Retrieval, Verification
+                steps_count = 3 + refinement_attempts  # Base (Triage, Retrieval, Verification) + Refinements
                 AGENT_STEPS_PER_RUN.observe(steps_count)
                 
                 cost_summary = cost_tracker.get_run_aggregates(r_id)
