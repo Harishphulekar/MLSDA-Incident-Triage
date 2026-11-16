@@ -2,13 +2,15 @@
   "summary": {
     "prompt_version": "v1.0.0",
     "scenarios_evaluated": 20,
-    "mean_groundedness": 0.3522,
+    "mean_groundedness": 0.4169,
     "mean_context_relevance": 0.3405,
-    "mean_faithfulness": 0.5033,
-    "mean_hallucination_rate": 0.6478,
+    "mean_faithfulness": 0.848,
+    "mean_hallucination_rate": 0.5831,
     "routing_accuracy": 0.65,
-    "human_escalation_precision": 1.6667,
-    "total_cost_dollars": 0.000941
+    "human_escalation_precision": 0.6,
+    "human_escalation_recall": 1.0,
+    "human_escalation_f1": 0.75,
+    "total_cost_dollars": 0.001061
   },
   "scores": [
     {
@@ -29,14 +31,14 @@
     },
     {
       "scenario_id": "SCEN-002-DISK-ARCHIVE-FAIL",
-      "groundedness": 0.3,
+      "groundedness": 0.5,
       "context_relevance": 0.463,
-      "faithfulness": 0.285,
-      "hallucination_rate": 0.7,
+      "faithfulness": 0.985,
+      "hallucination_rate": 0.5,
       "routing_correct": false,
       "evidence_verified": true,
       "details": {
-        "actual_cause": "Database Metric Degradation",
+        "actual_cause": "PostgreSQL WAL Archiver Failure",
         "expected_cause": "PostgreSQL WAL Archiver Failure",
         "actual_routing": "escalate_sre",
         "expected_routing": "escalate_dba",
@@ -45,14 +47,14 @@
     },
     {
       "scenario_id": "SCEN-003-REPL-LAG-HIGH",
-      "groundedness": 0.3,
+      "groundedness": 0.5333,
       "context_relevance": 0.5417,
-      "faithfulness": 0.285,
-      "hallucination_rate": 0.7,
+      "faithfulness": 0.985,
+      "hallucination_rate": 0.4667,
       "routing_correct": true,
       "evidence_verified": true,
       "details": {
-        "actual_cause": "Database Metric Degradation",
+        "actual_cause": "PostgreSQL Standby Replication Lag",
         "expected_cause": "PostgreSQL Standby Replication Lag",
         "actual_routing": "escalate_sre",
         "expected_routing": "escalate_sre",
@@ -77,14 +79,14 @@
     },
     {
       "scenario_id": "SCEN-005-SLOW-QUERY-LATENCY",
-      "groundedness": 0.3571,
+      "groundedness": 0.4,
       "context_relevance": 0.614,
-      "faithfulness": 0.425,
-      "hallucination_rate": 0.6429,
+      "faithfulness": 0.985,
+      "hallucination_rate": 0.6,
       "routing_correct": false,
       "evidence_verified": true,
       "details": {
-        "actual_cause": "Database Metric Degradation",
+        "actual_cause": "Unindexed Sequential Scan Query Degradation",
         "expected_cause": "Unindexed Sequential Scan Query Degradation",
         "actual_routing": "escalate_sre",
         "expected_routing": "escalate_dba",
@@ -93,30 +95,30 @@
     },
     {
       "scenario_id": "SCEN-006-LOCK-DEADLOCK",
-      "groundedness": 0.3571,
+      "groundedness": 0.5667,
       "context_relevance": 0.3333,
-      "faithfulness": 0.255,
-      "hallucination_rate": 0.6429,
+      "faithfulness": 0.988,
+      "hallucination_rate": 0.4333,
       "routing_correct": true,
-      "evidence_verified": false,
+      "evidence_verified": true,
       "details": {
-        "actual_cause": "Database Metric Degradation",
+        "actual_cause": "PostgreSQL Lock Contention & Deadlock",
         "expected_cause": "PostgreSQL Lock Contention & Deadlock",
         "actual_routing": "escalate_sre",
         "expected_routing": "escalate_sre",
-        "confidence": 0.5
+        "confidence": 0.94
       }
     },
     {
       "scenario_id": "SCEN-007-OOM-KILLER",
-      "groundedness": 0.3,
+      "groundedness": 0.46,
       "context_relevance": 0.625,
-      "faithfulness": 0.282,
-      "hallucination_rate": 0.7,
+      "faithfulness": 0.982,
+      "hallucination_rate": 0.54,
       "routing_correct": true,
       "evidence_verified": true,
       "details": {
-        "actual_cause": "Database Metric Degradation",
+        "actual_cause": "System Out-Of-Memory Kernel Eviction",
         "expected_cause": "System Out-Of-Memory Kernel Eviction",
         "actual_routing": "escalate_dba",
         "expected_routing": "escalate_dba",
@@ -125,14 +127,14 @@
     },
     {
       "scenario_id": "SCEN-008-WORK-MEM-TEMP-FILES",
-      "groundedness": 0.3571,
+      "groundedness": 0.35,
       "context_relevance": 0.0556,
-      "faithfulness": 0.285,
-      "hallucination_rate": 0.6429,
+      "faithfulness": 0.985,
+      "hallucination_rate": 0.65,
       "routing_correct": false,
       "evidence_verified": true,
       "details": {
-        "actual_cause": "Database Metric Degradation",
+        "actual_cause": "Query Hash Spill to Temporary Disk Files",
         "expected_cause": "Query Hash Spill to Temporary Disk Files",
         "actual_routing": "escalate_sre",
         "expected_routing": "escalate_dba",
@@ -141,14 +143,14 @@
     },
     {
       "scenario_id": "SCEN-009-TXID-WRAPAROUND",
-      "groundedness": 0.3571,
+      "groundedness": 0.5,
       "context_relevance": 0.75,
-      "faithfulness": 0.279,
-      "hallucination_rate": 0.6429,
+      "faithfulness": 0.979,
+      "hallucination_rate": 0.5,
       "routing_correct": true,
       "evidence_verified": true,
       "details": {
-        "actual_cause": "Database Metric Degradation",
+        "actual_cause": "PostgreSQL Transaction ID Wraparound Threat",
         "expected_cause": "PostgreSQL Transaction ID Wraparound Threat",
         "actual_routing": "escalate_dba",
         "expected_routing": "escalate_dba",
@@ -157,14 +159,14 @@
     },
     {
       "scenario_id": "SCEN-010-CHECKPOINT-SPIKES",
-      "groundedness": 0.3571,
+      "groundedness": 0.54,
       "context_relevance": 0.8095,
-      "faithfulness": 0.297,
-      "hallucination_rate": 0.6429,
+      "faithfulness": 0.997,
+      "hallucination_rate": 0.46,
       "routing_correct": true,
       "evidence_verified": true,
       "details": {
-        "actual_cause": "Database Metric Degradation",
+        "actual_cause": "Frequent Checkpoint I/O Throttling",
         "expected_cause": "Frequent Checkpoint I/O Throttling",
         "actual_routing": "escalate_dba",
         "expected_routing": "escalate_dba",
@@ -173,14 +175,14 @@
     },
     {
       "scenario_id": "SCEN-011-DEPENDENCY-REDIS-FAIL",
-      "groundedness": 0.3571,
+      "groundedness": 0.3667,
       "context_relevance": 0.0,
-      "faithfulness": 0.285,
-      "hallucination_rate": 0.6429,
+      "faithfulness": 0.985,
+      "hallucination_rate": 0.6333,
       "routing_correct": true,
       "evidence_verified": true,
       "details": {
-        "actual_cause": "Database Metric Degradation",
+        "actual_cause": "Downstream Cache Service Dependency Outage",
         "expected_cause": "Downstream Cache Service Dependency Outage",
         "actual_routing": "escalate_sre",
         "expected_routing": "escalate_sre",
@@ -237,14 +239,14 @@
     },
     {
       "scenario_id": "SCEN-015-UNSUPPORTED-SYMPTOMS",
-      "groundedness": 0.3571,
+      "groundedness": 0.4778,
       "context_relevance": 0.0641,
-      "faithfulness": 0.285,
-      "hallucination_rate": 0.6429,
+      "faithfulness": 0.985,
+      "hallucination_rate": 0.5222,
       "routing_correct": false,
       "evidence_verified": true,
       "details": {
-        "actual_cause": "Database Metric Degradation",
+        "actual_cause": "Hardware Infrastructure Failure",
         "expected_cause": "Hardware Infrastructure Failure",
         "actual_routing": "escalate_sre",
         "expected_routing": "escalate_human_expert",
@@ -332,5 +334,5 @@
       }
     }
   ],
-  "duration_seconds": 1.06
+  "duration_seconds": 1.08
 }

@@ -68,10 +68,33 @@ def run_batch_evaluation(scenarios_path: str, prompt_version: str) -> Dict[str, 
     mean_h = round(sum(s.hallucination_rate for s in scores) / len(scores), 4)
     routing_acc = round(sum(1 for s in scores if s.routing_correct) / len(scores), 4)
     
-    # Human escalation precision (did we correctly escalate when required?)
-    escalation_targets = [sc for sc in scenarios if sc.get("requires_human_escalation", False)]
-    correct_escalations = sum(1 for s in scores if not s.evidence_verified or "escalate" in str(s.details.get("actual_routing", "")))
-    esc_precision = round(correct_escalations / max(1, len(escalation_targets)), 4)
+    # Human escalation precision & recall confusion matrix
+    # TP: required escalation and system escalated
+    # FP: did NOT require escalation but system escalated
+    # FN: required escalation but system failed to escalate
+    # TN: did not require escalation and system did not escalate
+    tp = 0
+    fp = 0
+    fn = 0
+    tn = 0
+
+    for s, sc in zip(scores, scenarios):
+        target_needed = sc.get("requires_human_escalation", False)
+        actual_route = str(s.details.get("actual_routing", ""))
+        system_escalated = ("escalate" in actual_route) or (actual_route == "security_soc") or (not s.evidence_verified)
+
+        if target_needed and system_escalated:
+            tp += 1
+        elif not target_needed and system_escalated:
+            fp += 1
+        elif target_needed and not system_escalated:
+            fn += 1
+        else:
+            tn += 1
+
+    esc_precision = round(tp / max(1, tp + fp), 4) if (tp + fp) > 0 else 0.0
+    esc_recall = round(tp / max(1, tp + fn), 4) if (tp + fn) > 0 else 0.0
+    esc_f1 = round(2 * (esc_precision * esc_recall) / (esc_precision + esc_recall), 4) if (esc_precision + esc_recall) > 0 else 0.0
 
     summary = EvaluationSummary(
         prompt_version=prompt_version,
@@ -82,6 +105,8 @@ def run_batch_evaluation(scenarios_path: str, prompt_version: str) -> Dict[str, 
         mean_hallucination_rate=mean_h,
         routing_accuracy=routing_acc,
         human_escalation_precision=esc_precision,
+        human_escalation_recall=esc_recall,
+        human_escalation_f1=esc_f1,
         total_cost_dollars=round(total_cost, 6)
     )
 
@@ -100,7 +125,9 @@ def print_summary_table(summary: Dict[str, Any]):
         ["Mean Faithfulness", f"{summary['mean_faithfulness'] * 100:.1f}%", "Output adherence to operational facts"],
         ["Hallucination Rate", f"{summary['mean_hallucination_rate'] * 100:.1f}%", "Unsupported / unverified assertions"],
         ["Routing Accuracy", f"{summary['routing_accuracy'] * 100:.1f}%", "Exact match on expected routing team"],
-        ["Human Escalation Precision", f"{summary['human_escalation_precision'] * 100:.1f}%", "Mandatory escalations correctly triggered"],
+        ["Human Escalation Precision", f"{summary['human_escalation_precision'] * 100:.1f}%", "TP / (TP + FP) on mandatory escalations"],
+        ["Human Escalation Recall", f"{summary.get('human_escalation_recall', 1.0) * 100:.1f}%", "TP / (TP + FN) on mandatory escalations"],
+        ["Human Escalation F1 Score", f"{summary.get('human_escalation_f1', 0.0) * 100:.1f}%", "Harmonic mean 2*P*R / (P+R)"],
         ["Total Evaluation Cost", f"${summary['total_cost_dollars']:.6f}", "Model inference cost across all 20 runs"]
     ]
     print("\n" + tabulate(table, headers="firstrow", tablefmt="fancy_grid"))
@@ -123,6 +150,9 @@ def compare_results(file1: str, file2: str):
         ["Faithfulness", f"{data1['mean_faithfulness']*100:.1f}%", f"{data2['mean_faithfulness']*100:.1f}%", f"{(data2['mean_faithfulness'] - data1['mean_faithfulness'])*100:+.1f}%"],
         ["Hallucination Rate", f"{data1['mean_hallucination_rate']*100:.1f}%", f"{data2['mean_hallucination_rate']*100:.1f}%", f"{(data2['mean_hallucination_rate'] - data1['mean_hallucination_rate'])*100:+.1f}%"],
         ["Routing Accuracy", f"{data1['routing_accuracy']*100:.1f}%", f"{data2['routing_accuracy']*100:.1f}%", f"{(data2['routing_accuracy'] - data1['routing_accuracy'])*100:+.1f}%"],
+        ["Escalation Precision", f"{data1.get('human_escalation_precision', 0.0)*100:.1f}%", f"{data2.get('human_escalation_precision', 0.0)*100:.1f}%", f"{(data2.get('human_escalation_precision', 0.0) - data1.get('human_escalation_precision', 0.0))*100:+.1f}%"],
+        ["Escalation Recall", f"{data1.get('human_escalation_recall', 1.0)*100:.1f}%", f"{data2.get('human_escalation_recall', 1.0)*100:.1f}%", f"{(data2.get('human_escalation_recall', 1.0) - data1.get('human_escalation_recall', 1.0))*100:+.1f}%"],
+        ["Escalation F1 Score", f"{data1.get('human_escalation_f1', 0.0)*100:.1f}%", f"{data2.get('human_escalation_f1', 0.0)*100:.1f}%", f"{(data2.get('human_escalation_f1', 0.0) - data1.get('human_escalation_f1', 0.0))*100:+.1f}%"],
         ["Total Cost (20 runs)", f"${data1['total_cost_dollars']:.6f}", f"${data2['total_cost_dollars']:.6f}", f"${data2['total_cost_dollars'] - data1['total_cost_dollars']:+.6f}"]
     ]
     print(tabulate(diff_table, headers="firstrow", tablefmt="fancy_grid"))

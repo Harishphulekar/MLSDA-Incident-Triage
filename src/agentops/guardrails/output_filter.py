@@ -11,10 +11,11 @@ class OutputFilterResult(BaseModel):
 
 # Patterns where the AI claims it executed or completed remediation actions
 ACTION_CLAIM_PATTERNS = [
-    re.compile(r"i\s+(have\s+)?(executed|run|restarted|killed|deleted|dropped|modified|patched|applied)", re.IGNORECASE),
-    re.compile(r"the\s+(system|assistant|bot)\s+(has\s+)?(remediated|fixed|restarted|cleaned\s+up)", re.IGNORECASE),
-    re.compile(r"successfully\s+(restarted|deleted|dropped|executed|applied)", re.IGNORECASE),
-    re.compile(r"remediation\s+(has\s+been|was)\s+(completed|performed|executed)", re.IGNORECASE)
+    re.compile(r"i\s+(have\s+)?(executed|run|restarted|killed|terminated|deleted|dropped|modified|patched|applied)", re.IGNORECASE),
+    re.compile(r"the\s+(system|assistant|bot)\s+(has\s+)?(remediated|fixed|restarted|cleaned\s+up|terminated)", re.IGNORECASE),
+    re.compile(r"\b(successfully|already)\s+(restarted|deleted|dropped|executed|applied|terminated|fixed)\b", re.IGNORECASE),
+    re.compile(r"remediation\s+(has\s+been|was)\s+(completed|performed|executed|done)", re.IGNORECASE),
+    re.compile(r"^(executed|terminated|dropped|restarted|deleted)\s+", re.IGNORECASE)
 ]
 
 class OutputFilter:
@@ -59,7 +60,8 @@ class OutputFilter:
             # Clean imperative action claims
             clean_act = act
             for pat in ACTION_CLAIM_PATTERNS:
-                clean_act = pat.sub("Advise human engineer to inspect and", clean_act)
+                clean_act = pat.sub("Advise human engineer to inspect and ", clean_act)
+            clean_act = re.sub(r"\s+", " ", clean_act).strip()
             if not any(clean_act.lower().startswith(prefix) for prefix in ["recommend", "advise", "suggest", "inspect", "check", "verify", "consider"]):
                 clean_act = f"Recommend: {clean_act}"
             enforced_actions.append(clean_act)

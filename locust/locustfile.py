@@ -37,7 +37,7 @@ class IncidentTriageUser(HttpUser):
             "X-Client-ID": f"client_{random.randint(1, 5)}"
         }
         with self.client.post("/api/v1/incidents", json=payload, headers=headers, catch_response=True) as response:
-            if response.status_code == 200:
+            if response.status_code in [200, 202]:
                 data = response.json()
                 if "run_id" in data:
                     response.success()

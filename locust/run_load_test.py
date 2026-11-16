@@ -165,19 +165,19 @@ def main():
 
     # Comparison: Single Worker vs 3-Worker Capacity Projection
     print("\n--------------------------------------------------------------------------------")
-    print("⚖️ Single-Worker vs 3-Worker Scaling Comparison")
+    print("⚖️ Single-Worker Measured vs 3-Worker Analytical Scaling Projection")
     print("--------------------------------------------------------------------------------")
     
-    # 1-worker throughput: ~1 / (avg service time = 0.055s) = ~18 RPS max theoretical capacity
-    # 3-worker throughput: ~3 * 18 = ~54 RPS theoretical capacity
+    # 1-worker throughput measured directly in-process via threadpool
+    # 3-worker throughput is an analytical horizontal scaling projection (~95% efficiency)
     base_1w_rps = results[1]["rps"]  # at concurrency 5
-    proj_3w_rps = round(base_1w_rps * 2.85, 2)  # near-linear horizontal scale with ~95% efficiency
+    proj_3w_rps = round(base_1w_rps * 2.85, 2)
     
     worker_comp = [
-        ["Metric", "Single Worker (agent-worker=1)", "Three Workers (agent-worker=3)", "Scaling Factor"],
-        ["Max Throughput (RPS)", f"{base_1w_rps:.1f} req/s", f"{proj_3w_rps:.1f} req/s", "2.85x"],
-        ["p95 Latency @ 10 Concurrent", f"{results[2]['p95_ms']} ms", f"{round(results[2]['p95_ms'] / 2.6, 2)} ms", "-61.5%"],
-        ["Queue Saturation Point", "Concurrency > 10", "Concurrency > 30", "3.0x capacity"],
+        ["Metric", "Single Worker (In-Process Measured)", "Three Workers (Analytical Projection)", "Scaling Factor"],
+        ["Max Throughput (RPS)", f"{base_1w_rps:.1f} req/s", f"{proj_3w_rps:.1f} req/s [Projected]", "2.85x"],
+        ["p95 Latency @ 10 Concurrent", f"{results[2]['p95_ms']} ms", f"{round(results[2]['p95_ms'] / 2.6, 2)} ms [Projected]", "-61.5%"],
+        ["Queue Saturation Point", "Concurrency > 10", "Concurrency > 30 [Projected]", "3.0x capacity"],
         ["Identified Bottleneck", "Single CPU Worker Queue Starvation", "Redis I/O / Ingestion Network", "Horizontal Scale Relieved"]
     ]
     print(tabulate(worker_comp, headers="firstrow", tablefmt="fancy_grid"))
