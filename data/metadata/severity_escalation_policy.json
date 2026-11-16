@@ -1,0 +1,151 @@
+{
+  "policy_name": "Production Incident Severity and Escalation Policy",
+  "policy_version": "1.0.0",
+  "effective_date": "2026-11-15",
+  "target_system": "PostgreSQL 16 Production Cluster & Application Gateway",
+  "severities": {
+    "SEV-1": {
+      "level": "SEV-1",
+      "name": "Critical Incident",
+      "sla_response_minutes": 5,
+      "conditions": [
+        "Primary database filesystem storage utilization >= 90% with positive growth rate (> 500MB/min).",
+        "Imminent risk of PostgreSQL PANIC due to inability to write to pg_wal/ directory.",
+        "Total connection saturation: active sessions at max_connections and application receives FATAL connection errors.",
+        "Catastrophic primary crash, hardware failure, or unrecoverable split-brain scenario.",
+        "Transaction ID wraparound failure threshold approached (< 1,000,000 transactions until forced shutdown)."
+      ],
+      "operational_impact": [
+        "Complete user-facing outage or transaction processing halted.",
+        "Data write operations blocked across all production services.",
+        "Severe business revenue and customer SLA breach."
+      ],
+      "evidence_required": [
+        "Filesystem metrics showing storage >= 90% or pg_wal/ size exceeding retention limits.",
+        "pg_replication_slots query output demonstrating multi-gigabyte restart_lsn lag or dead slot.",
+        "pg_stat_activity output showing connection count equal to max_connections or superuser-only access.",
+        "Exact error log traces containing 'PANIC: could not write to file pg_wal' or 'FATAL: remaining connection slots'."
+      ],
+      "escalation_conditions": [
+        "Incident not contained within 15 minutes of alert trigger.",
+        "Cause remains unknown or ambiguous after initial triage.",
+        "Root cause requires destructive action (dropping replication slots, terminating active client sessions)."
+      ],
+      "human_approval_requirements": {
+        "automated_remediation_allowed": false,
+        "required_roles": ["Incident Commander", "Lead Database Administrator (DBA)", "SRE Tech Lead"],
+        "approval_protocol": "Explicit two-person authorization recorded in incident channel prior to executing destructive commands (e.g., pg_drop_replication_slot, manual failover)."
+      }
+    },
+    "SEV-2": {
+      "level": "SEV-2",
+      "name": "High Severity Incident",
+      "sla_response_minutes": 15,
+      "conditions": [
+        "Standby replica replication lag exceeds SLO (> 100MB or > 60 seconds duration).",
+        "Primary filesystem utilization between 75% and 89% with steady growth.",
+        "Connection count >= 80% of max_connections, or elevated PgBouncer client wait queues.",
+        "Lock contention wave or deadlock frequency exceeding 10 per minute.",
+        "Autovacuum unable to keep pace, causing noticeable table/index bloat on core tables."
+      ],
+      "operational_impact": [
+        "Read replicas serving stale data to customer-facing APIs.",
+        "P95 / P99 latency spikes causing degraded user experience.",
+        "Risk of escalation to SEV-1 if left unmitigated."
+      ],
+      "evidence_required": [
+        "pg_stat_replication output with replay_lag_bytes > 100MB.",
+        "pg_stat_activity query output with connection breakdown by state and top wait events.",
+        "pg_locks and pg_blocking_pids output identifying blocking transactions.",
+        "pg_stat_archiver metrics demonstrating failed WAL archive attempts."
+      ],
+      "escalation_conditions": [
+        "Standby lag continues to grow after 30 minutes of standard troubleshooting.",
+        "Blocking PID belongs to a critical background batch job or migration.",
+        "Underlying cause is ambiguous or documentation retrieval yields insufficient evidence."
+      ],
+      "human_approval_requirements": {
+        "automated_remediation_allowed": false,
+        "required_roles": ["On-Call DBA", "On-Call SRE"],
+        "approval_protocol": "DBA approval required before terminating blocking backend PIDs or modifying configuration parameters (e.g., max_standby_streaming_delay)."
+      }
+    },
+    "SEV-3": {
+      "level": "SEV-3",
+      "name": "Medium Severity Incident",
+      "sla_response_minutes": 60,
+      "conditions": [
+        "Isolated slow query regressions impacting non-critical services.",
+        "Temporary disk consumption spike (65% - 74%) during large batch reports.",
+        "Autovacuum freeze warnings with > 20,000,000 transactions before wraparound limit.",
+        "Minor connection pool spikes that resolve autonomously within 5 minutes."
+      ],
+      "operational_impact": [
+        "Localized latency degradation on specific internal endpoints.",
+        "Zero customer-facing transactional downtime."
+      ],
+      "evidence_required": [
+        "pg_stat_statements or EXPLAIN (ANALYZE) query plans.",
+        "Autovacuum execution logs and relation tuple age metrics.",
+        "Storage trend graphs over a 24-hour baseline."
+      ],
+      "escalation_conditions": [
+        "Condition persists for > 4 hours without resolution.",
+        "Trend analysis projects degradation into SEV-2 within 12 hours."
+      ],
+      "human_approval_requirements": {
+        "automated_remediation_allowed": false,
+        "required_roles": ["Service Owner", "On-Call Engineer"],
+        "approval_protocol": "Standard engineering review and scheduled deployment window."
+      }
+    },
+    "SEV-4": {
+      "level": "SEV-4",
+      "name": "Low Severity / Advisory",
+      "sla_response_minutes": 240,
+      "conditions": [
+        "Informational alert or minor configuration drift.",
+        "Non-blocking log warnings (e.g. temporary client disconnection, checkpoint starting).",
+        "Sub-optimal index suggestions or routine maintenance scheduling."
+      ],
+      "operational_impact": [
+        "No operational or customer impact.",
+        "Preventative maintenance opportunity."
+      ],
+      "evidence_required": [
+        "PostgreSQL log extracts or configuration diffs."
+      ],
+      "escalation_conditions": [
+        "None under standard operations."
+      ],
+      "human_approval_requirements": {
+        "automated_remediation_allowed": true,
+        "required_roles": ["Assigned Engineer"],
+        "approval_protocol": "Standard Git pull request or Jira ticket."
+      }
+    }
+  },
+  "ambiguous_incident_policy": {
+    "rule": "EVIDENCE_SUFFICIENCY_GATE",
+    "description": "Whenever an alert payload or on-call observation lacks sufficient authoritative evidence, ambiguous symptoms are detected, or retrieval confidence falls below 0.70, the system MUST NOT formulate speculative hypotheses or suggest unverified remediations.",
+    "mandatory_routing": "escalate_human_expert",
+    "required_output_fields": [
+      "evidence_sufficient: false",
+      "escalation_reason",
+      "missing_information_description",
+      "suggested_diagnostic_queries"
+    ]
+  },
+  "human_approval_guardrail": {
+    "rule": "ZERO_UNAUTHORIZED_MUTATION",
+    "description": "All destructive, terminating, dropping, rebooting, or failover actions require verified human sign-off. The assistant operates strictly in an advisory capacity.",
+    "forbidden_automated_actions": [
+      "pg_drop_replication_slot",
+      "pg_terminate_backend",
+      "ALTER SYSTEM",
+      "systemctl restart postgresql",
+      "rm -rf $PGDATA",
+      "kill -9"
+    ]
+  }
+}

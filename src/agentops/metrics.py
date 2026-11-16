@@ -12,6 +12,15 @@ from prometheus_client import (
     REGISTRY
 )
 
+# Unregister default process/platform collectors if present to avoid DuplicateTimeseries
+# when registering custom process gauges below
+for _coll in list(REGISTRY._collector_to_names.keys()):
+    if _coll.__class__.__name__ in ("ProcessCollector", "PlatformCollector", "GCCollector"):
+        try:
+            REGISTRY.unregister(_coll)
+        except Exception:
+            pass
+
 # -----------------------------------------------------------------------------
 # 1. HTTP and API Metrics
 # -----------------------------------------------------------------------------
